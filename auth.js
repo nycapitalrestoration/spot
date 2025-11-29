@@ -1,95 +1,86 @@
-// --- PKCE Helpers ---
-function generateRandomString(length) {
-  const array = new Uint32Array(length);
-  crypto.getRandomValues(array);
-  return Array.from(array, dec => ('0' + dec.toString(16)).substr(-2)).join('');
+// auth.js
+// Handles Spotify PKCE login entirely in-browser
+export function base64UrlEncode(str) {
+    return btoa(String.fromCharCode.apply(null, new Uint8Array(str)))
+        .replace(/\+/g, "-")
+        .replace(/\//g, "_")
+        .replace(/=+$/, "");
 }
 
-async function generateCodeChallenge(verifier) {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier));
-  return btoa(String.fromCharCode(...new Uint8Array(digest)))
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=+$/, '');
+export async function sha256(plain) {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(plain);
+    const hash = await crypto.subtle.digest("SHA-256", data);
+    return hash;
 }
 
-// --- Main Auth Flow ---
-export async function startSpotifyLogin(config) {
-  const verifier = generateRandomString(64);
-  const challenge = await generateCodeChallenge(verifier);
-
-  localStorage.setItem("pkce_verifier", verifier);
-
-  const params = new URLSearchParams({
-    client_id: config.client_id,
-    response_type: "code",
-    redirect_uri: config.redirect_uri,
-    code_challenge_method: "S256",
-    code_challenge: challenge,
-    scope: "playlist-read-private playlist-read-collaborative playlist-modify-public playlist-modify-private user-library-read user-library-modify"
-  });
-
-  window.location = `https://accounts.spotify.com/authorize?${params.toString()}`;
+export function generateRandomString(length) {
+    let text = "";
+    const possible = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+    for (let i = 0; i < length; i++) {
+        text += possible.charAt(Math.floor(Math.random() * possible.length));
+    }
+    return text;
 }
 
-export async function finishSpotifyLogin(config) {
-  const urlParams = new URLSearchParams(window.location.search);
-  const code = urlParams.get("code");
-
-  if (!code) return null;
-
-  const verifier = localStorage.getItem("pkce_verifier");
-
-  const body = new URLSearchParams({
-    grant_type: "authorization_code",
-    code: code,
-    redirect_uri: config.redirect_uri,
-    client_id: config.client_id,
-    code_verifier: verifier
-  });
-
-  const res = await fetch("https://accounts.spotify.com/api/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: body
-  });
-
-  const tokenData = await res.json();
-  tokenData.timestamp = Date.now();
-
-  localStorage.setItem("spotify_token", JSON.stringify(tokenData));
-  return tokenData;
+export function storeToken(token) {
+    localStorage.setItem("spotify_token", token);
 }
 
 export function getStoredToken() {
-  const data = JSON.parse(localStorage.getItem("spotify_token") || "{}");
-  if (!data.access_token) return null;
-
-  const expires = data.timestamp + (data.expires_in * 1000);
-  if (Date.now() > expires) return null;
-
-  return data.access_token;
+    return localStorage.getItem("spotify_token");
 }
 
-export async function refreshToken(config) {
-  const data = JSON.parse(localStorage.getItem("spotify_token") || "{}");
-  if (!data.refresh_token) return null;
+export async function startSpotifyLogin(conf) {
+    const state = generateRandomString(16);
+    const codeVerifier = generateRandomString(128);
+    localStorage.setItem("spotify_code_verifier", codeVerifier);
+    localStorage.setItem("spotify_state", state);
 
-  const body = new URLSearchParams({
-    grant_type: "refresh_token",
-    refresh_token: data.refresh_token,
-    client_id: config.client_id
-  });
+    const codeChallengeBuffer = await sha256(codeVerifier);
+    const codeChallenge = base64UrlEncode(codeChallengeBuffer);
 
-  const res = await fetch("https://accounts.spotify.com/api/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body
-  });
+    const params = new URLSearchParams({
+        response_type: "code",
+        client_id: conf.client_id,
+        scope: "playlist-read-private playlist-modify-private playlist-modify-public user-library-read",
+        redirect_uri: conf.redirect_uri,
+        state: state,
+        code_challenge_method: "S256",
+        code_challenge: codeChallenge
+    });
 
-  const fresh = await res.json();
-  fresh.timestamp = Date.now();
+    window.location = "https://accounts.spotify.com/authorize?" + params.toString();
+}
 
-  localStorage.setItem("spotify_token", JSON.stringify(fresh));
-  return fresh.access_token;
+export async function finishSpotifyLogin(conf) {
+    const urlParams = new URLSearchParams(window.location.search);
+    const code = urlParams.get("code");
+    const state = urlParams.get("state");
+    const storedState = localStorage.getItem("spotify_state");
+
+    if (!code || !state || state !== storedState) return;
+
+    const codeVerifier = localStorage.getItem("spotify_code_verifier");
+
+    const body = new URLSearchParams({
+        grant_type: "authorization_code",
+        code: code,
+        redirect_uri: conf.redirect_uri,
+        client_id: conf.client_id,
+        code_verifier: codeVerifier
+    });
+
+    const resp = await fetch("https://accounts.spotify.com/api/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: body.toString()
+    });
+
+    const data = await resp.json();
+    if (data.access_token) {
+        storeToken(data.access_token);
+        // Remove code & state from URL
+        window.history.replaceState({}, document.title, conf.redirect_uri);
+    }
 }
