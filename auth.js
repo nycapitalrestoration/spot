@@ -1,5 +1,5 @@
-// auth.js - PKCE login for GitHub Pages
-// Works with index.html/login.html for Spotify export/import
+// auth.js - fully corrected PKCE login for GitHub Pages
+// Works with index.html + login.html
 
 // -------------------- Helper Functions --------------------
 
@@ -64,7 +64,8 @@ export async function startSpotifyLogin(conf) {
         state: state,
         code_challenge_method: 'S256',
         code_challenge: codeChallenge,
-        scope: scopes.join(' ')
+        scope: scopes.join(' '),
+        show_dialog: 'true' // forces Spotify to prompt for all scopes
     });
 
     window.location = 'https://accounts.spotify.com/authorize?' + params.toString();
