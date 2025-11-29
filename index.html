@@ -30,32 +30,38 @@
 import { config } from './config.js';
 import { startSpotifyLogin, finishSpotifyLogin, getStoredToken } from './auth.js';
 
+// Elements
 const loginBtn = document.getElementById('login');
 const pnlLoggedOut = document.getElementById('pnlLoggedOut');
 const pnlAction = document.getElementById('pnlAction');
+const btnExport = document.getElementById('btnExport');
+const btnImport = document.getElementById('btnImport');
+const fileImport = document.getElementById('fileImport');
 
+// -------------------- App Initialization --------------------
 async function initApp() {
-    const storedToken = getStoredToken();
-    if (!storedToken) {
+    const token = getStoredToken();
+
+    if (!token) {
         loginBtn.addEventListener('click', () => startSpotifyLogin(config));
     }
 
     await finishSpotifyLogin(config);
-    const token = getStoredToken();
-    if (token) {
+
+    if (getStoredToken()) {
         pnlLoggedOut.style.display = 'none';
         pnlAction.style.display = 'block';
-        console.log('Spotify token loaded:', token);
     }
 }
 
 initApp();
 
-// ---------------- Export ----------------
+// -------------------- Export Playlists --------------------
 async function fetchAllTracks(token, playlistId) {
     let tracks = [];
     let offset = 0;
     const limit = 100;
+
     while (true) {
         const resp = await fetch(`https://api.spotify.com/v1/playlists/${playlistId}/tracks?offset=${offset}&limit=${limit}`, {
             headers: { 'Authorization': 'Bearer ' + token }
@@ -97,7 +103,7 @@ async function exportPlaylists() {
     a.click();
 }
 
-// ---------------- Import ----------------
+// -------------------- Import Playlists --------------------
 async function importPlaylists(file) {
     const token = getStoredToken();
     if (!token) { alert('Not logged in'); return; }
@@ -121,6 +127,7 @@ async function importPlaylists(file) {
                         collaborative: playlist.collaborative
                     })
                 });
+
                 const newPlaylist = await createResp.json();
                 const newPlaylistId = newPlaylist.id;
 
@@ -146,10 +153,10 @@ async function importPlaylists(file) {
     reader.readAsText(file);
 }
 
-// ---------------- Buttons ----------------
-document.getElementById('btnExport').addEventListener('click', exportPlaylists);
-document.getElementById('btnImport').addEventListener('click', () => {
-    const file = document.getElementById('fileImport').files[0];
+// -------------------- Event Listeners --------------------
+btnExport.addEventListener('click', exportPlaylists);
+btnImport.addEventListener('click', () => {
+    const file = fileImport.files[0];
     if (!file) { alert('Select a file'); return; }
     importPlaylists(file);
 });
