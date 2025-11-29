@@ -15,7 +15,7 @@
 
 <div id="pnlLoggedOut">
     <h1>SpotMyBackup</h1>
-    <p>Export your playlists and tracks into a file. Import the file to restore your setup anytime.</p>
+    <p>Export your playlists and tracks. Import the file to restore your setup anytime.</p>
     <button id="login" class="button-main button-big">Login with Spotify</button>
 </div>
 
@@ -30,7 +30,7 @@
 import { config } from './config.js';
 import { startSpotifyLogin, finishSpotifyLogin, getStoredToken } from './auth.js';
 
-// Elements
+// ---------------- Elements ----------------
 const loginBtn = document.getElementById('login');
 const pnlLoggedOut = document.getElementById('pnlLoggedOut');
 const pnlAction = document.getElementById('pnlAction');
@@ -38,10 +38,9 @@ const btnExport = document.getElementById('btnExport');
 const btnImport = document.getElementById('btnImport');
 const fileImport = document.getElementById('fileImport');
 
-// -------------------- App Initialization --------------------
+// ---------------- App Initialization ----------------
 async function initApp() {
     const token = getStoredToken();
-
     if (!token) {
         loginBtn.addEventListener('click', () => startSpotifyLogin(config));
     }
@@ -56,7 +55,7 @@ async function initApp() {
 
 initApp();
 
-// -------------------- Export Playlists --------------------
+// ---------------- Export Playlists ----------------
 async function fetchAllTracks(token, playlistId) {
     let tracks = [];
     let offset = 0;
@@ -66,6 +65,9 @@ async function fetchAllTracks(token, playlistId) {
         const resp = await fetch(`https://api.spotify.com/v1/playlists/${playlistId}/tracks?offset=${offset}&limit=${limit}`, {
             headers: { 'Authorization': 'Bearer ' + token }
         });
+
+        if (!resp.ok) throw new Error(`Spotify API returned ${resp.status}`);
+
         const data = await resp.json();
         tracks.push(...data.items.map(item => item.track.uri));
         if (data.items.length < limit) break;
@@ -78,32 +80,40 @@ async function exportPlaylists() {
     const token = getStoredToken();
     if (!token) { alert('Not logged in'); return; }
 
-    const resp = await fetch('https://api.spotify.com/v1/me/playlists?limit=50', {
-        headers: { 'Authorization': 'Bearer ' + token }
-    });
-    const data = await resp.json();
-
-    const exportData = [];
-    for (const playlist of data.items) {
-        const tracks = await fetchAllTracks(token, playlist.id);
-        exportData.push({
-            id: playlist.id,
-            name: playlist.name,
-            owner: playlist.owner.display_name,
-            collaborative: playlist.collaborative,
-            description: playlist.description,
-            tracks: tracks
+    try {
+        const resp = await fetch('https://api.spotify.com/v1/me/playlists?limit=50', {
+            headers: { 'Authorization': 'Bearer ' + token }
         });
-    }
 
-    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = 'spotify_backup.json';
-    a.click();
+        if (!resp.ok) throw new Error(`Spotify API returned ${resp.status}`);
+
+        const data = await resp.json();
+        const exportData = [];
+
+        for (const playlist of data.items) {
+            const tracks = await fetchAllTracks(token, playlist.id);
+            exportData.push({
+                id: playlist.id,
+                name: playlist.name,
+                owner: playlist.owner.display_name,
+                collaborative: playlist.collaborative,
+                description: playlist.description,
+                tracks: tracks
+            });
+        }
+
+        const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'spotify_backup.json';
+        a.click();
+    } catch (err) {
+        alert(`Error exporting playlists: ${err}`);
+        console.error(err);
+    }
 }
 
-// -------------------- Import Playlists --------------------
+// ---------------- Import Playlists ----------------
 async function importPlaylists(file) {
     const token = getStoredToken();
     if (!token) { alert('Not logged in'); return; }
@@ -114,7 +124,7 @@ async function importPlaylists(file) {
             const data = JSON.parse(e.target.result);
 
             for (const playlist of data) {
-                const createResp = await fetch(`https://api.spotify.com/v1/users/me/playlists`, {
+                const createResp = await fetch('https://api.spotify.com/v1/users/me/playlists', {
                     method: 'POST',
                     headers: {
                         'Authorization': 'Bearer ' + token,
@@ -128,13 +138,14 @@ async function importPlaylists(file) {
                     })
                 });
 
+                if (!createResp.ok) throw new Error(`Failed to create playlist: ${createResp.status}`);
                 const newPlaylist = await createResp.json();
                 const newPlaylistId = newPlaylist.id;
 
                 const chunkSize = 100;
                 for (let i = 0; i < playlist.tracks.length; i += chunkSize) {
                     const chunk = playlist.tracks.slice(i, i + chunkSize);
-                    await fetch(`https://api.spotify.com/v1/playlists/${newPlaylistId}/tracks`, {
+                    const addResp = await fetch(`https://api.spotify.com/v1/playlists/${newPlaylistId}/tracks`, {
                         method: 'POST',
                         headers: {
                             'Authorization': 'Bearer ' + token,
@@ -142,18 +153,20 @@ async function importPlaylists(file) {
                         },
                         body: JSON.stringify({ uris: chunk })
                     });
+                    if (!addResp.ok) throw new Error(`Failed to add tracks: ${addResp.status}`);
                 }
             }
 
-            alert('Import completed!');
+            alert('Import completed successfully!');
         } catch (err) {
-            alert('Error parsing JSON: ' + err);
+            alert('Error during import: ' + err);
+            console.error(err);
         }
     };
     reader.readAsText(file);
 }
 
-// -------------------- Event Listeners --------------------
+// ---------------- Button Listeners ----------------
 btnExport.addEventListener('click', exportPlaylists);
 btnImport.addEventListener('click', () => {
     const file = fileImport.files[0];
