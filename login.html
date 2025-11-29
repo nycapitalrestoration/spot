@@ -1,18 +1,26 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
     <meta charset="UTF-8">
-    <title>Spotify Login Redirect</title>
+    <title>Logging In...</title>
+    <script src="config.js"></script>
+    <script src="auth.js"></script>
 </head>
 <body>
-    <script type="module">
-        import { finishSpotifyLogin } from './auth.js';
-        import { config } from './config.js';
-        
-        await finishSpotifyLogin(config);
-        
-        // Redirect back to main page after login
-        window.location.href = './index.html';
-    </script>
+<script>
+(async () => {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get("code");
+
+    if (!code) {
+        document.body.innerHTML = "<h1>Login failed: code missing</h1>";
+        return;
+    }
+
+    await requestAccessToken(code);
+
+    window.location = "index.html";
+})();
+</script>
 </body>
 </html>
